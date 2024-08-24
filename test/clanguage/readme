@@ -1,0 +1,5 @@
+1. getprofile.c   添加了mmap信息处理
+2. getprofile2.c  在1的基础上添加了task信息处理
+3. task.c 该文件是处理task事件的c代码
+4. parse.c 该文件是处理LBR信息的c代码
+5. mmap.c  该文件是处理mmap信息的c代码

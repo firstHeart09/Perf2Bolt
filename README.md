@@ -1,2 +1,2 @@
 # Perf2Bolt
-该仓库用于保存实现BOLT工具中的Perf2Bolt的代码（c语言或者shell脚本）
+该仓库用来保存从bolt源码中实现对应的Perf2Bolt工具的源码编写过程（c语言或者shell脚本）
