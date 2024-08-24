@@ -21,9 +21,8 @@ rad.json
 #Test results file
 TestResults.xml
 # log file
-./test/shell/*.log
-./test/clanguage/*.log
+**/*.log
 # perf.data and perf.fdata
-./perf.data
-./perf.fdata
+**/perf.data
+**/perf.fdata
 
