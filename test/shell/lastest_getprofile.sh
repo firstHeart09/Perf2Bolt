@@ -264,13 +264,12 @@ fi
 
 # 打印 perf 路径
 echo "perf的可执行文件路径：$perf_path"
-
+echo "当前正在执行perf命令，生成对应的临时文件"
 # 执行 perf 命令获取输出结果
 $perf_path script -F pid,ip,brstack -f -i "$arg1" &> perf_branch.log
 $perf_path script -F pid,event,addr,ip -f -i "$arg1" &> perf_mem.log
 $perf_path script --show-mmap-events --no-itrace -f -i "$arg1" &> perf_mmap.log
 $perf_path script --show-task-events --no-itrace -f -i "$arg1" &> perf_task.log
-
 
 # 输出完成信息
 echo "perf 命令执行完毕，结果已保存到 perf_branch.log、perf_event.log、perf_mmap.log 和 perf_task.log"
@@ -279,7 +278,7 @@ echo "perf 命令执行完毕，结果已保存到 perf_branch.log、perf_event.
 perf_mmap_path=$(get_absolute_path "perf_mmap.log")
 awk -v exec_name="$executable_name" '
 BEGIN {
-    print "当前正在解析mmap事件："
+    print "正在解析mmap事件"
     HasFixedLoadAddress=0
     BasicAddress=0
     print "parse mmap events" > "perf_temp_mmap.log"
@@ -357,7 +356,7 @@ END {
 perf_task_path=$(get_absolute_path "perf_task.log")
 awk '
 BEGIN {
-    print "当前正在解析task事件："
+    print "当前正在解析task事件"
     # 读取 mmap_info 数据
     while ((getline line < "perf_temp_mmap.log") > 0) {
         if (line ~ /pid/) {
@@ -365,7 +364,7 @@ BEGIN {
             split(line, fields, " ")
             pid=fields[2]
             isfork=fields[4]
-            print "pid: " pid, "  isfork: " isfork
+            # print "pid: " pid, "  isfork: " isfork
             mmap_info[pid] = isfork
         }
     }
@@ -380,7 +379,7 @@ BEGIN {
         pid = pid_tid[2]
         tid = pid_tid[3]
         if (pid in mmap_info && mmap_info[pid] == "forked") {
-            print "Deleting forked PID:", pid
+            # print "Deleting forked PID:", pid
             delete mmap_info[pid]
         }
     }
@@ -391,7 +390,7 @@ BEGIN {
         child_pid = arr[1]
         parent_pid = arr[3]
         if (parent_pid != child_pid && parent_pid in mmap_info) {
-            print "Adding forked PID:", child_pid
+            # print "Adding forked PID:", child_pid
             mmap_info[child_pid] = "forked"
         }
     }
@@ -399,17 +398,20 @@ BEGIN {
 
 END {
     if (length(mmap_info) > 0) {
-        print "Keys in mmap_info:"
+        # print "Keys in mmap_info:"
         for (pid in mmap_info) {
-            print "  PID: " pid
+            print "PID: " pid "  isfork: " mmap_info[pid] >> "perf_temp_task.log"
         }
     } else {
-        print "No PID information found"
+        print "No PID information found" >> "perf_temp_task.log"
+        echo "task数据解析失败"
+        exit 1
     }
+    print "task事件解析完成"
 }
 ' "$perf_task_path"
 
-# 初始化关联数组
+# 初始化关联数组，方便后面解析branch分支事件的时候使用
 declare -A FallthroughLBRs
 declare -A BranchLBRs
 declare -A Branch
@@ -427,7 +429,7 @@ function initializeBranchInfo(trace) {
 }
 
 BEGIN {
-	print "正在处理branch分支事件"
+	print "正在解析branch分支事件"
 	print "parse branch events" > "perf_temp_branch.log"
 	NumTotalSamples = 0
 	NumEntries = 0
@@ -435,7 +437,7 @@ BEGIN {
 	NumSamplesNoLBR = 0
 	NumTrace = 0
     TraceBF = ""
-    num_line
+    # num_line = 0
 
 	# 该部分变量值要么是写死的，要么是通过命令行获取的
 	IgnoreInterruptLBR=1  # 命令行参数
@@ -471,7 +473,7 @@ BEGIN {
 			# 获取到基地址
 			split(line, arr_, " ")
 			basicAddress=arr_[2]
-			print "basicAddress" basicAddress
+			# print "basicAddress" basicAddress
 		}
 	} 
 	# 现在已经从perf_temp_mmap.log文件中读取到相关变量，为了不影响下面有文件的读取，再次关闭文件指针
@@ -489,8 +491,8 @@ BEGIN {
 		}
 	}
 	close("perf_temp_readelf.log")
-	# 在这里测试两个值读取是否成功
-	print "FirstAllocAddress: " FirstAllocAddress, "   LayoutStartAddress: " LayoutStartAddress
+	# # 在这里测试两个值读取是否成功
+	# print "FirstAllocAddress: " FirstAllocArddress, "   LayoutStartAddress: " LayoutStartAddress
 	# 读取函数的相关信息
 	while((getline line < "perf_temp_func.log") > 0){
 		split(line, arr)
@@ -585,8 +587,8 @@ function compare_traces(trace1, trace2) {
 }
 
 {
-    num_line += 1
-    print "当前正在处理第" num_line "行"
+    # num_line += 1
+    # print "当前正在处理第" num_line "行"
 	NumTotalSamples += 1
     ++NumSamples
 	# 处理文件的每一行
@@ -772,6 +774,7 @@ END {
         split(Branch[current_branch], current_branchs, " ")
         print current_branch " " current_branchs[1] " " current_branchs[2] > "perf.fdata"
     }
+    print "branch分支事件解析完成"
 
 }
 ' "$perf_branch_path"
