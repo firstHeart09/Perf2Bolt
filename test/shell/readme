@@ -1,0 +1,10 @@
+1. lastest_getprofile.sh  该文件是最终的脚本文件，可以完成信息的提取并输出到perf.fdata文件中
+				注意：该文件在解析过程中和bolt源码的逻辑一致，但是在最后的写入到perf.fdata时，即
+				调用readProfile函数时，没有按照bolt的源码逻辑写
+				在这里的逻辑是：因为前面已经得到了from与to的trace信息，然后我们找每个trace的第一个大于该地址（指的是form和to的地址）
+				的前一个函数的信息，然后将其按照bolt源码中关于perf.fdata的数据格式写入到perf.fdata文件中
+2. new_getprofile.sh  正在迭代更新的版本
+3. after_parse_begin_readprofile.sh  该版本是提取完信息的版本，即在bolt源码中调用readProfile函数之前的版本
+4. run.sh  该脚本用于运行上述脚本
+5. objdump.sh  该脚本用于从可执行文件中提取函数信息，该脚本内容已经集成到1 2 3中
+6. readelf.sh  该脚本用于从可执行文件中提取段信息、符号信息并做处理，该脚本已经集成到1 2 3中

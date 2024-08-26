@@ -412,6 +412,7 @@ END {
 # 初始化关联数组
 declare -A FallthroughLBRs
 declare -A BranchLBRs
+declare -A Branch
 
 # 提取branch信息
 perf_branch_path=$(get_absolute_path "perf_branch.log")
@@ -422,7 +423,7 @@ function initializeFTInfo(trace) {
 }
 
 function initializeBranchInfo(trace) {
-    BranchLBRs[trace] = "0 0 0"  # TakenCount MispredCount HasProfileAvailable
+    BranchLBRs[trace] = "0 0"  # TakenCount MispredCount
 }
 
 BEGIN {
@@ -433,8 +434,8 @@ BEGIN {
 	NumSamples = 0
 	NumSamplesNoLBR = 0
 	NumTrace = 0
-    	TraceBF = ""
-    	num_line = 0
+    TraceBF = ""
+    num_line
 
 	# 该部分变量值要么是写死的，要么是通过命令行获取的
 	IgnoreInterruptLBR=1  # 命令行参数
@@ -583,71 +584,6 @@ function compare_traces(trace1, trace2) {
     return trace1 == trace2
 }
 
-# 定义LBREntry
-function LBREntry(from, to, mispred){
-    # 返回结果为一个数组
-    return  from "," to "," mispred
-}
-
-# getBasicBlockContainingOffset 函数的目的是在函数的基本块列表中查找包含特定偏移量的基本块。
-# 它首先检查偏移量是否有效，然后使用 upper_bound 查找可能的基本块，并最终验证该偏移量是否在基本块的有效范围内。
-# 如果一切有效，返回包含该偏移量的基本块；否则返回 nullptr
-function getBasicBlockContainingOffset(offset){
-# TODO:
-}
-
-# 定义getFallthroughsInTrace函数
-function getFallthroughsInTrace(BF, FirstLBR, SecondLBR, Count){
-    # BF是func信息 
-    split(FirstLBR, firstlbr, ",")
-    split(SecondLBR, secondlbr, ",")  # LBR格式: from,to,Mispred
-    split(BF, binaryfunc, " ")  # 格式: name addr size
-    From_firstlbr = firstlbr[2] - binaryfunc[2]
-    To_secondlbr = secondlbr[1] - binaryfunc[2]
-    print "getFallthroughsInTrace: From_firstlbr: " From_firstlbr " To_secondlbr: " To_secondlbr
-    if (From_firstlbr > To_secondlbr){
-        return false
-    }
-    # TODO:
-    # FromBB = getBasicBlockContainingOffset(From_firstlbr)
-    # ToBB = getBasicBlockContainingOffset(To_secondlbr)
-    # if ((!FromBB) || (!ToBB)){
-    #     return false
-    # }
-}
-
-# 定义doTrace函数
-function doTrace(First, Second, Count){
-	split(First, first, ",")
-	split(Second, second, ",")
-	FromFunc = da_getBinaryFunctionContainingAddress(first[2])
-	ToFunc = da_getBinaryFunctionContainingAddress(second[1])
-    ######################
-    print "DataAggregator::doTrace" >> "perf_temp_branch1.log"
-    print "After getBinaryFunctionContainingAddress" >> "perf_temp_branch1.log"
-    print "FromFunc: " FromFunc >> "perf_temp_branch1.log"
-    print "ToFunc: " ToFunc >> "perf_temp_branch1.log"
-    ######################
-	if ((!FromFunc) || (!FromFunc)){
-		print "Out of range trace starting in " FromFunc " and ending in " ToFunc
-		NumLongRangeTraces += Count
-		return ""
-	}
-	if (FromFunc != ToFunc){
-		NumInvalidTraces += Count
-		print "Invalid trace starting in " FromFunc " and ending in " ToFunc
-		return ""
-	}
-	FTs = getFallthroughsInTrace(FromFunc, First, Second, Count)
-	if (!FTs){
-		print "Invalid trace starting in " FromFunc " and ending in " ToFunc
-		NumInvalidTraces += Count
-		return ""
-	}
-    # TODO:
-    # ParentFunc = getBATParentFunction(FromFunc)
-}
-
 {
     num_line += 1
     print "当前正在处理第" num_line "行"
@@ -756,54 +692,89 @@ function doTrace(First, Second, Count){
         split(info, counts, " ")
         TakenCount = counts[1]
         MispredCount = counts[2]
-        HasProfileAvailable = counts[3]
         TakenCount++
         MispredCount += mispred
-        BranchLBRs[trace] = TakenCount " " MispredCount " " HasProfileAvailable
+        BranchLBRs[trace] = TakenCount " " MispredCount
 	}
 }
 
 END {
-    print "read " NumSamples, " samples and " NumEntries " LBR entries" >> "perf_temp_branch.log"
-    print "Fallthrough LBRs:"  >> "perf_temp_branch.log"
-    for (trace in FallthroughLBRs) {
-        split(FallthroughLBRs[trace], counts, " ")
-        print trace " InternCount: " counts[1] " ExternCount: " counts[2] >> "perf_temp_branch.log"
-    }
-    # parseBranchEvents中的for循坏代码
     for (trace in BranchLBRs) {
-        split(BranchLBRs[trace], counts, " ")  # 从BranchLBRs中拆分出数据和Trace
-        split(trace, trace_arr, ",")  # 从trace中拆分出from和to信息
-        for(trace_index=1; trace_index<=2; trace_index++){
-            temp_addr = trace_arr[trace_index]  # 这个值是bolt源码中的for (const uint64_t Addr : {Trace.From, Trace.To})这一部分
-            if(new_func = da_getBinaryFunctionContainingAddress(temp_addr)){
-                # BranchLBRs中设置该行Trace数据有用
-                HasProfileAvailable = 1
-                BranchLBRs[trace] = counts[1] " " counts[2] " " HasProfileAvailable
-                print trace " TakenCount: " counts[1] " MispredCount: " counts[2] " HasProfileAvailable: " counts[3] >> "perf_temp_branch.log"
-                print "找到的func信息为： " new_func >> "perf_temp_branch.log"
-            }
+        split(BranchLBRs[trace], counts, " ")  # 从 BranchLBRs 中拆分出数据
+        BranchLBRs_counts = counts[1]
+        BranchLBRs_Mispred = counts[2]
+
+        split(trace, trace_arr, ",")  # 从 trace 中拆分出 from 和 to 信息
+        BranchLBRs_from = trace_arr[1]  # from 信息
+        BranchLBRs_to = trace_arr[2]  # to 信息
+
+        # 通过 da_getBinaryFunctionContainingAddress 函数找到第一个包含该地址的前一个函数信息
+        from_func = da_getBinaryFunctionContainingAddress(BranchLBRs_from)  # 获取 from 地址的第一个大于该地址的前一个函数信息
+        to_func = da_getBinaryFunctionContainingAddress(BranchLBRs_to)  # 获取 to 地址的第一个大于该地址的前一个函数信息
+
+        # 初始化 方便后面处理
+        src_func_id = 0
+        src_func_name = ""
+        src_func_offset = 0
+        dst_func_id = 0
+        dst_func_name = ""
+        dst_func_offset = 0
+
+        if (!from_func) {
+            src_func_id = 0
+            src_func_name = "[unknown]"
+            src_func_offset = 0
+        } else {
+            split(from_func, from_func_split, " ")  # 按照空格拆分 from_func
+            src_func_id = 1
+            src_func_name = from_func_split[1]
+            from_func_addr = from_func_split[2]
+            from_func_size = from_func_split[3]
+            src_func_offset = BranchLBRs_from - from_func_addr  # 源的偏移量 = from 的地址信息 - 找到的函数的地址信息
         }
-        # print trace " TakenCount: " counts[1] " MispredCount: " counts[2] " HasProfileAvailable: " counts[3] >> "perf_temp_branch.log"
+
+        if (!to_func) {
+            dst_func_id = 0
+            dst_func_name = "[unknown]"
+            dst_func_offset = 0
+        } else {
+            split(to_func, to_func_split, " ")  # 按照空格拆分 to_func
+            dst_func_id = 1
+            dst_func_name = to_func_split[1]
+            to_func_addr = to_func_split[2]
+            to_func_size = to_func_split[3]
+            dst_func_offset = BranchLBRs_to - to_func_addr
+        }
+
+        # 转换 src_func_offset 和 dst_func_offset 为十六进制
+        # src_func_offset_hex = sprintf("%X", src_func_offset)
+        # dst_func_offset_hex = sprintf("%X", dst_func_offset)
+
+        # 构建 Branch_data 字符串
+        Branch_data = sprintf("%d %s %X %d %s %X", src_func_id, src_func_name, src_func_offset, dst_func_id, dst_func_name, dst_func_offset)
+        
+        if (!(Branch_data in Branch)) {
+            # 如果当前的 branch 分支信息不在关联数组中，创建该信息
+            Branch[Branch_data] = BranchLBRs_Mispred " " BranchLBRs_counts
+        } else {
+            # 如果当前的 branch 分支已经存在，更新 counts 和 Mispred
+            split(Branch[Branch_data], Branch_temp, " ")
+            BranchLBRs_counts_temp = Branch_temp[1]
+            BranchLBRs_Mispred_temp = Branch_temp[2]
+            BranchLBRs_counts += BranchLBRs_counts_temp
+            BranchLBRs_Mispred += BranchLBRs_Mispred_temp
+            Branch[Branch_data] = BranchLBRs_Mispred " " BranchLBRs_counts
+        }
     }
-    ############################################
-	print "processing branch events..." >> "perf_temp_branch1.log"
-	# 表明现在正在处理branch事件
-	for(trace in FallthroughLBRs){
-		split(FallthroughLBRs[trace], counts, " ")  # 按照空格拆分FallthroughLBRs关联数组的值
-		split(trace, trace_arr, ",")  # 按照,进行拆分trace
-		First = LBREntry(trace_arr[1], trace_arr[1], 0)
-		Second = LBREntry(trace_arr[2], trace_arr[2], 0)
-		if (counts[1]){
-			doTrace(First, Second, counts[1])
-		}
-		if (counts[2]){
-			First = LBREntry(0, trace_arr[1], 0)
-			doTrace(First, Second, counts[2])
-		}
-	}
-    # 下面还差一个处理BranchLBRs的
-    # TODO
+
+    # 遍历整个 Branch 数组，输出最后的信息
+    for (current_branch in Branch) {
+        split(Branch[current_branch], current_branchs, " ")
+        print current_branch " " current_branchs[1] " " current_branchs[2] > "perf.fdata"
+    }
+
 }
 ' "$perf_branch_path"
 
+# 执行完成后，删除所有的临时文件
+rm -rf perf_*

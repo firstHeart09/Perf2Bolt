@@ -701,6 +701,12 @@ function compare_traces(trace1, trace2) {
 END {
     print "read " NumSamples, " samples and " NumEntries " LBR entries" >> "perf_temp_branch.log"
     # parseBranchEvents中的for循坏代码
+    print "Fallthrough LBRs:"  >> "perf_temp_branch.log"
+    for (trace in FallthroughLBRs) {
+        split(FallthroughLBRs[trace], counts, " ")
+        print trace " InternCount: " counts[1] " ExternCount: " counts[2] >> "perf_temp_branch.log"
+    }
+    print "\n\nBranchLBRs:"  >> "perf_temp_branch.log"
     for (trace in BranchLBRs) {
         split(BranchLBRs[trace], counts, " ")  # 从BranchLBRs中拆分出数据和Trace
         split(trace, trace_arr, ",")  # 从trace中拆分出from和to信息
@@ -720,6 +726,7 @@ END {
         # 通过 da_getBinaryFunctionContainingAddress 函数找到第一个包含该地址的前一个函数信息
         from_func = da_getBinaryFunctionContainingAddress(BranchLBRs_from)  # 获取 from 地址的第一个大于该地址的前一个函数信息
         to_func = da_getBinaryFunctionContainingAddress(BranchLBRs_to)  # 获取 to 地址的第一个大于该地址的前一个函数信息
+        print "找到的函数信息: from: " from_func " , to_func: " to_func >> "perf_temp_branch.log"
 
         # 初始化 方便后面处理
         src_func_id = 0
@@ -764,7 +771,7 @@ END {
         
         if (!(Branch_data in Branch)) {
             # 如果当前的 branch 分支信息不在关联数组中，创建该信息
-            Branch[Branch_data] = BranchLBRs_counts "  " BranchLBRs_Mispred
+            Branch[Branch_data] = BranchLBRs_Mispred " " BranchLBRs_counts
         } else {
             # 如果当前的 branch 分支已经存在，更新 counts 和 Mispred
             split(Branch[Branch_data], Branch_temp, " ")
@@ -772,7 +779,7 @@ END {
             BranchLBRs_Mispred_temp = Branch_temp[2]
             BranchLBRs_counts += BranchLBRs_counts_temp
             BranchLBRs_Mispred += BranchLBRs_Mispred_temp
-            Branch[Branch_data] = BranchLBRs_counts " " BranchLBRs_Mispred
+            Branch[Branch_data] = BranchLBRs_Mispred " " BranchLBRs_counts
         }
     }
 

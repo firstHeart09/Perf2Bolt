@@ -715,6 +715,7 @@ END {
                 # BranchLBRs中设置该行Trace数据有用
                 HasProfileAvailable = 1
                 BranchLBRs[trace] = counts[1] " " counts[2] " " HasProfileAvailable
+		split(BranchLBRs[trace], counts, " ")
                 print trace " TakenCount: " counts[1] " MispredCount: " counts[2] " HasProfileAvailable: " counts[3] >> "perf_temp_branch1.log"
                 print "找到的func信息为： " new_func >> "perf_temp_branch1.log"
             }
