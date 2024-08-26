@@ -3,3 +3,5 @@
 3. task.c 该文件是处理task事件的c代码
 4. parse.c 该文件是处理LBR信息的c代码
 5. mmap.c  该文件是处理mmap信息的c代码
+
+请注意：c语言版本的perf信息处理没有完成
