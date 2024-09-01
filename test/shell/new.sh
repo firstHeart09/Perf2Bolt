@@ -78,12 +78,6 @@ in_disassembly_section && /^[ \t]+[0-9a-f]+:/ {
         }
     }
 }
-
-END {
-    if (func_name != "") {
-        print func_name, func_address, num_inst > "perf_temp_objdump.log"
-    }
-}
 '
 
 # 执行 readelf 命令，获取关于可执行文件的相关信息
@@ -99,9 +93,6 @@ BEGIN {
     IsLinuxKernel = 0
     phnum = 0 # 程序段首部表的个数
     ELF64LEPhdrTy_Size = 56  # 来自我的输出（不确定一定对）
-
-    print "  Type    Offset    VirtAddr    PhysAddr   FileSiz    MemSiz    Flags  Align" > "perf_temp_readelf_temp.log"
-    print "---------------------------------------------------------------" >> "perf_temp_readelf_temp.log"
 }
 
 /LOAD/ {
@@ -109,13 +100,16 @@ BEGIN {
     line_load = $0
     # 将多个空格替换为一个空格
     gsub(/ +/, " ", line_load)
-    # 读取下一行
-    getline next_line
-    # 替换前导空格为单个空格
-    gsub(/^ +/, "", next_line)
-    # 处理所有与 LOAD 相关的行
-    if (match(next_line, /0x[0-9a-fA-F]+/)) {
-        line_load = line_load " " next_line
+    # 如果该行的个数超过4个，说明所有的数据在一行，否则直接读取下一行
+    if (NF <= 4){
+        # 读取下一行
+        getline next_line
+        # 替换前导空格为单个空格
+        gsub(/^ +/, "", next_line)
+        # 处理所有与 LOAD 相关的行
+        if (match(next_line, /0x[0-9a-fA-F]+/)) {
+            line_load = line_load " " next_line
+        }
     }
     split(line_load, fields, " ")
     # 解析地址和大小
@@ -185,8 +179,8 @@ END {
     LayoutStartAddress = NextAvailableAddress;
     
     # 输出结果
-    print "FirstAllocAddress", sprintf("%d", FirstAllocAddress)  >> "perf_temp_readelf_temp.log"
-    print "LayoutStartAddress", sprintf("%d", LayoutStartAddress)  >> "perf_temp_readelf_temp.log"
+    print "FirstAllocAddress", sprintf("%d", FirstAllocAddress)  > "perf_temp_mmap.log"
+    print "LayoutStartAddress", sprintf("%d", LayoutStartAddress)  >> "perf_temp_mmap.log"
 }
 '
 
@@ -247,8 +241,8 @@ END {
 }
 '
 
-# 获取readelf命令执行结果文件所在的绝对路径
-perf_readelf_path=$(get_absolute_path "perf_temp_readelf_temp.log")
+# # 获取readelf命令执行结果文件所在的绝对路径
+# perf_readelf_path=$(get_absolute_path "perf_temp_readelf_temp.log")
 
 # 打印参数
 echo "要解析的perf.data文件的路径为：$arg1"
@@ -281,7 +275,7 @@ BEGIN {
     print "正在解析mmap事件"
     HasFixedLoadAddress=0
     BasicAddress=0
-    print "parse mmap events" > "perf_temp_mmap.log"
+    # print "parse mmap events" > "perf_temp_mmap.log"
 }
 
 /PERF_RECORD_MMAP2/ {
@@ -300,7 +294,7 @@ BEGIN {
         if (!(PID in mmap_info)){
             mmap_info[PID]="unfork"
         }
-        print "filename " filename, "  PID " PID, "  MMapAddr " ADDR, "  SIZE " SIZE, "  OFFSET " OFFSET >> "perf_temp_mmap.log"
+        print "filename " filename, "  correspondence-PID " PID, "  MMapAddr " ADDR, "  SIZE " SIZE, "  OFFSET " OFFSET >> "perf_temp_mmap.log"
     }
 
     # 关闭文件以重置文件指针
@@ -345,7 +339,7 @@ BEGIN {
 END {
 	# 将pid输出到文件中，方便后面解析task事件的时候使用
     for (pid in mmap_info) {
-        print "pid " pid, "IsForked " mmap_info[pid] >> "perf_temp_mmap.log"
+        print "current_pid " pid, "IsForked " mmap_info[pid] >> "perf_temp_mmap.log"
     } 
     print "BasicAddress: " BasicAddress >> "perf_temp_mmap.log"
     print "mmap事件解析完成"
@@ -359,7 +353,7 @@ BEGIN {
     print "当前正在解析task事件"
     # 读取 mmap_info 数据
     while ((getline line < "perf_temp_mmap.log") > 0) {
-        if (line ~ /pid/) {
+        if (line ~ /current_pid/) {
             # 按照空格拆分该行
             split(line, fields, " ")
             pid=fields[2]
@@ -412,38 +406,24 @@ END {
 ' "$perf_task_path"
 
 # 初始化关联数组，方便后面解析branch分支事件的时候使用
-declare -A FallthroughLBRs
 declare -A BranchLBRs
 declare -A Branch
 
 # 提取branch信息
 perf_branch_path=$(get_absolute_path "perf_branch.log")
 awk -v execname="$executable_name" '
-# # 函数定义放在 BEGIN 块之外
-# function initializeFTInfo(trace) {
-#     FallthroughLBRs[trace] = "0 0"  # InternCount ExternCount
-# }
-
 function initializeBranchInfo(trace) {
     BranchLBRs[trace] = "0 0"  # TakenCount MispredCount
 }
 
 BEGIN {
 	print "正在解析branch分支事件"
-	# print "parse branch events" > "perf_temp_branch.log"
-	# NumTotalSamples = 0
-	# NumEntries = 0
-	# NumSamples = 0
-	# NumSamplesNoLBR = 0
-	# NumTrace = 0
-    # TraceBF = ""
-    # num_line = 0
+	print "parse branch events" > "perf_temp_branch.log"
 
 	# 该部分变量值要么是写死的，要么是通过命令行获取的
 	IgnoreInterruptLBR=1  # 命令行参数
 	KernelBaseAddr=0xffff800000000000  # 该地址在源码中是写死的
 	HasFixedLoadAddress=0
-	# UseEventPC = 0  # 由命令行参数给出，在我的测试中该值一直为0
 	NeedsSkylakeFix = false
 
 	# 从文件中读取到的数值
@@ -452,8 +432,6 @@ BEGIN {
 	mmapSize = 0
 	FirstAllocAddress = 0
 	LayoutStartAddress = 0
-
-	# lbr_count = 0  # 每个解析出来的LBR条目中拥有的LBR的数量（即每行中LBR的数量）
 
 	# 从mmap解析的结果中获取到部分信息，如基地址信息
 	while ((getline line < "perf_temp_mmap.log") > 0){
@@ -475,13 +453,7 @@ BEGIN {
 			basicAddress=arr_[2]
 			# print "basicAddress" basicAddress
 		}
-	} 
-	# 现在已经从perf_temp_mmap.log文件中读取到相关变量，为了不影响下面有文件的读取，再次关闭文件指针
-	close("perf_temp_mmap.log")
-	# 现在需要打开readelf命令执行的临时文件，获取到FirstAllocAddress和LayoutStartAddress参数
-	while((getline line < "perf_temp_readelf_temp.log") > 0){
-		# print line
-		if (line ~ /FirstAllocAddress/){
+        if (line ~ /FirstAllocAddress/){
 			split(line, arr)
 			FirstAllocAddress = arr[2]
 		}
@@ -489,10 +461,9 @@ BEGIN {
 			split(line, arr)
 			LayoutStartAddress = arr[2]
 		}
-	}
-	close("perf_temp_readelf.log")
-	# # 在这里测试两个值读取是否成功
-	# print "FirstAllocAddress: " FirstAllocArddress, "   LayoutStartAddress: " LayoutStartAddress
+	} 
+	# 现在已经从perf_temp_mmap.log文件中读取到相关变量，为了不影响下面有文件的读取，再次关闭文件指针
+	close("perf_temp_mmap.log")
 	# 读取函数的相关信息
 	while((getline line < "perf_temp_func.log") > 0){
 		split(line, arr)
@@ -587,41 +558,24 @@ function compare_traces(trace1, trace2) {
 }
 
 {
-    # num_line += 1
-    # print "当前正在处理第" num_line "行"
-	# NumTotalSamples += 1
-    # ++NumSamples
 	# 处理文件的每一行
 	pid=$1
 	pc=$2
-	# print "\n\npid: " pid, "  pc: " pc >> "perf_temp_branch.log"
 	if (NF == 2){
 		next  # 开始处理下一行
 	}
-	# NextPC = UseEventPC ? pc : 0	
 	NumEntry = 0
 
 	for (i=3; i<=NF; i++){
         ++NumEntry
-        # print i " : " $i > "1.log"
-        # 处理parseBranchSample
-		# 循环遍历LBRSamples,并对其进行处理
-		# 按照 / 分割LBR Samples
-        # print "\n\n" $i >> "perf_temp_branch.log"
 		split($i, arr, "/")
 		from = arr[1]
 		to = arr[2]
 		mispred = (arr[3] ~ "M")
-		# print "\n\n解析出来的from: " from, "  to: " to, "  mispred: " mispred >> "perf_temp_branch.log"
-		# print KernelBaseAddr >> "perf_temp_branch.log"
 		from = strtonum(from)
 		to = strtonum(to)
 		mmapAddress = strtonum(mmapAddress)
 		mmapSize = strtonum(mmapSize)
-        # print "自定义输出: mmapAddress: " mmapAddress, "   mmapSize: " mmapSize
-		# # 上述代码已经从文件中读取出来了LBR条目,接下来就是通过判断是否是内存地址,并且调整LBR值
-		# print "判断  from >= KernelBaseAddr: " (from >= KernelBaseAddr) >> "perf_temp_branch.log"
-		# print "判断  to >= KernelBaseAddr: " (to >= KernelBaseAddr)  >> "perf_temp_branch.log"
 		if ((IgnoreInterruptLBR) && ((from >= KernelBaseAddr) || (to >= KernelBaseAddr))){
 			continue
 		}
@@ -633,56 +587,16 @@ function compare_traces(trace1, trace2) {
 			}
 			if ((to >= mmapAddress) && (to < (mmapAddress + mmapSize))){
 				to = to - basicAddress
-                        } else if (to < mmapSize){
-                                to = -1
-                        }
-			# print "adjust   from: " from, "  to: " to >> "perf_temp_branch.log"
+            } else if (to < mmapSize){
+                to = -1
+            }
 		}
 		# 实现parseparseLBRSample的函数逻辑
-        # ++NumEntries
 		if (and(NeedsSkylakeFix, (NumEntry <= 2))){
 			continue
 		}
-		# # print "当前正在处理的PC：NextPC：" NextPC
-        # # print "当前处理的from和to： " from, "    to: " to
-		# if(NextPC){
-		# 	TraceFrom = to
-		# 	TraceTo   = NextPC
-        #     # print "Before da_getBinaryFunctionContainingAddress: TraceFrom:  "  TraceFrom, "   TraceTo: " TraceTo >> "perf_temp_branch.log"
-        #     TraceBF = da_getBinaryFunctionContainingAddress(TraceFrom)
-        #     # print "After da_getBinaryFunctionContainingAddress: TraceBF:  "  TraceBF >> "perf_temp_branch.log"
-		# 	if(TraceBF){
-		# 		split(TraceBF, arr, " ")
-		# 		TraceBF_addr = arr[2]
-		# 		TraceBF_size = arr[3]
-        #         # print "在调用containsAddress_2之前的判断: 函数名:" arr[1], " addr: " TraceBF_addr, "  size: " TraceBF_size >> "perf_temp_branch.log"
-		# 		if(containsAddress_2(TraceTo, TraceBF_addr, TraceBF_size)){
-		# 			trace = create_trace(TraceFrom, TraceTo)
-        #             if (!(trace in FallthroughLBRs)) {
-        #                 initializeFTInfo(trace)
-        #             }
-        #             info = FallthroughLBRs[trace]
-        #             split(info, counts, " ")
-        #             InternCount = counts[1]
-        #             ExternCount = counts[2]
-        #             # print "containsAddress_2(from, TraceBF_addr, TraceBF_size)的返回值：" containsAddress_2(from, TraceBF_addr, TraceBF_size) >> "perf_temp_branch.log"
-        #             if (containsAddress_2(from, TraceBF_addr, TraceBF_size)) {
-        #                 InternCount++
-        #             } else {
-        #                 ExternCount++
-        #             }
-        #             FallthroughLBRs[trace] = InternCount " " ExternCount
-		#     	}else{
-		# 			ToFunc = da_getBinaryFunctionContainingAddress(TraceTo)
-		# 		}
-		# 	}
-		# 	++NumTraces
-		# }
-		# NextPC = from
-        # print "Before From = da_getBinaryFunctionContainingAddress(from) ? from : 0"
 		From = da_getBinaryFunctionContainingAddress(from) ? from : 0
 		To = da_getBinaryFunctionContainingAddress(to) ? to : 0
-        # print "From: " From, ",  To: " To  >> "perf_temp_branch.log"
 		if (!From && !To){
 			continue
 		}
@@ -748,10 +662,6 @@ END {
             dst_func_offset = BranchLBRs_to - to_func_addr
         }
 
-        # 转换 src_func_offset 和 dst_func_offset 为十六进制
-        # src_func_offset_hex = sprintf("%X", src_func_offset)
-        # dst_func_offset_hex = sprintf("%X", dst_func_offset)
-
         # 构建 Branch_data 字符串
         Branch_data = sprintf("%d %s %X %d %s %X", src_func_id, src_func_name, src_func_offset, dst_func_id, dst_func_name, dst_func_offset)
         
@@ -769,14 +679,11 @@ END {
         }
     }
 
-    # # 遍历整个 Branch 数组，输出最后的信息
-    # for (current_branch in Branch) {
-    #     split(Branch[current_branch], current_branchs, " ")
-    #     print current_branch " " current_branchs[1] " " current_branchs[2] > "perf.fdata"
-    # }
-    for current_branch in "${!Branch[@]}"; do
-        echo "$current_branch ${Branch[$current_branch]}" >> "perf.fdata"
-    done
+    # 遍历整个 Branch 数组，输出最后的信息
+    for (current_branch in Branch) {
+        split(Branch[current_branch], current_branchs, " ")
+        print current_branch " " current_branchs[1] " " current_branchs[2] > "perf.fdata"
+    }
     print "branch分支事件解析完成"
 
 }

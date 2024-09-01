@@ -264,13 +264,12 @@ fi
 
 # 打印 perf 路径
 echo "perf的可执行文件路径：$perf_path"
-
+echo "当前正在执行perf命令，生成对应的临时文件"
 # 执行 perf 命令获取输出结果
 $perf_path script -F pid,ip,brstack -f -i "$arg1" &> perf_branch.log
 $perf_path script -F pid,event,addr,ip -f -i "$arg1" &> perf_mem.log
 $perf_path script --show-mmap-events --no-itrace -f -i "$arg1" &> perf_mmap.log
 $perf_path script --show-task-events --no-itrace -f -i "$arg1" &> perf_task.log
-
 
 # 输出完成信息
 echo "perf 命令执行完毕，结果已保存到 perf_branch.log、perf_event.log、perf_mmap.log 和 perf_task.log"
@@ -279,7 +278,7 @@ echo "perf 命令执行完毕，结果已保存到 perf_branch.log、perf_event.
 perf_mmap_path=$(get_absolute_path "perf_mmap.log")
 awk -v exec_name="$executable_name" '
 BEGIN {
-    print "当前正在解析mmap事件："
+    print "正在解析mmap事件"
     HasFixedLoadAddress=0
     BasicAddress=0
     print "parse mmap events" > "perf_temp_mmap.log"
@@ -357,7 +356,7 @@ END {
 perf_task_path=$(get_absolute_path "perf_task.log")
 awk '
 BEGIN {
-    print "当前正在解析task事件："
+    print "当前正在解析task事件"
     # 读取 mmap_info 数据
     while ((getline line < "perf_temp_mmap.log") > 0) {
         if (line ~ /pid/) {
@@ -365,7 +364,7 @@ BEGIN {
             split(line, fields, " ")
             pid=fields[2]
             isfork=fields[4]
-            print "pid: " pid, "  isfork: " isfork
+            # print "pid: " pid, "  isfork: " isfork
             mmap_info[pid] = isfork
         }
     }
@@ -380,7 +379,7 @@ BEGIN {
         pid = pid_tid[2]
         tid = pid_tid[3]
         if (pid in mmap_info && mmap_info[pid] == "forked") {
-            print "Deleting forked PID:", pid
+            # print "Deleting forked PID:", pid
             delete mmap_info[pid]
         }
     }
@@ -391,7 +390,7 @@ BEGIN {
         child_pid = arr[1]
         parent_pid = arr[3]
         if (parent_pid != child_pid && parent_pid in mmap_info) {
-            print "Adding forked PID:", child_pid
+            # print "Adding forked PID:", child_pid
             mmap_info[child_pid] = "forked"
         }
     }
@@ -399,17 +398,20 @@ BEGIN {
 
 END {
     if (length(mmap_info) > 0) {
-        print "Keys in mmap_info:"
+        # print "Keys in mmap_info:"
         for (pid in mmap_info) {
-            print "  PID: " pid
+            print "PID: " pid "  isfork: " mmap_info[pid] >> "perf_temp_task.log"
         }
     } else {
-        print "No PID information found"
+        print "No PID information found" >> "perf_temp_task.log"
+        echo "task数据解析失败"
+        exit 1
     }
+    print "task事件解析完成"
 }
 ' "$perf_task_path"
 
-# 初始化关联数组
+# 初始化关联数组，方便后面解析branch分支事件的时候使用
 declare -A FallthroughLBRs
 declare -A BranchLBRs
 declare -A Branch
@@ -427,7 +429,7 @@ function initializeBranchInfo(trace) {
 }
 
 BEGIN {
-	print "正在处理branch分支事件"
+	print "正在解析branch分支事件"
 	print "parse branch events" > "perf_temp_branch.log"
 	NumTotalSamples = 0
 	NumEntries = 0
@@ -435,7 +437,7 @@ BEGIN {
 	NumSamplesNoLBR = 0
 	NumTrace = 0
     TraceBF = ""
-    num_line
+    # num_line = 0
 
 	# 该部分变量值要么是写死的，要么是通过命令行获取的
 	IgnoreInterruptLBR=1  # 命令行参数
@@ -471,7 +473,7 @@ BEGIN {
 			# 获取到基地址
 			split(line, arr_, " ")
 			basicAddress=arr_[2]
-			print "basicAddress" basicAddress
+			# print "basicAddress" basicAddress
 		}
 	} 
 	# 现在已经从perf_temp_mmap.log文件中读取到相关变量，为了不影响下面有文件的读取，再次关闭文件指针
@@ -489,8 +491,8 @@ BEGIN {
 		}
 	}
 	close("perf_temp_readelf.log")
-	# 在这里测试两个值读取是否成功
-	print "FirstAllocAddress: " FirstAllocAddress, "   LayoutStartAddress: " LayoutStartAddress
+	# # 在这里测试两个值读取是否成功
+	# print "FirstAllocAddress: " FirstAllocArddress, "   LayoutStartAddress: " LayoutStartAddress
 	# 读取函数的相关信息
 	while((getline line < "perf_temp_func.log") > 0){
 		split(line, arr)
@@ -584,9 +586,21 @@ function compare_traces(trace1, trace2) {
     return trace1 == trace2
 }
 
+function doBranch(From, To, TakenCount, MispredCount){
+    FromFunc = da_getBinaryFunctionContainingAddress(From)
+    ToFunc = da_getBinaryFunctionContainingAddress(To)
+    if((!FromFunc) && (!ToFunc))
+        return ""
+    split(ToFunc, ToFunc_arr, " ")
+    if ((FromFunc == ToFunc) && (To != ToFunc_arr[2])){
+        
+    }
+
+}
+
 {
-    num_line += 1
-    print "当前正在处理第" num_line "行"
+    # num_line += 1
+    # print "当前正在处理第" num_line "行"
 	NumTotalSamples += 1
     ++NumSamples
 	# 处理文件的每一行
@@ -699,21 +713,6 @@ function compare_traces(trace1, trace2) {
 }
 
 END {
-    print "read " NumSamples, " samples and " NumEntries " LBR entries" >> "perf_temp_branch.log"
-    # parseBranchEvents中的for循坏代码
-    print "Fallthrough LBRs:"  >> "perf_temp_branch.log"
-    for (trace in FallthroughLBRs) {
-        split(FallthroughLBRs[trace], counts, " ")
-        print trace " InternCount: " counts[1] " ExternCount: " counts[2] >> "perf_temp_branch.log"
-    }
-    print "\n\nBranchLBRs:"  >> "perf_temp_branch.log"
-    for (trace in BranchLBRs) {
-        split(BranchLBRs[trace], counts, " ")  # 从BranchLBRs中拆分出数据和Trace
-        split(trace, trace_arr, ",")  # 从trace中拆分出from和to信息
-        print trace " TakenCount: " counts[1] " MispredCount: " counts[2] >> "perf_temp_branch.log"
-    }
-
-    print "\n\nBranch LBRs:"  >> "perf_temp_branch.log"
     for (trace in BranchLBRs) {
         split(BranchLBRs[trace], counts, " ")  # 从 BranchLBRs 中拆分出数据
         BranchLBRs_counts = counts[1]
@@ -726,7 +725,6 @@ END {
         # 通过 da_getBinaryFunctionContainingAddress 函数找到第一个包含该地址的前一个函数信息
         from_func = da_getBinaryFunctionContainingAddress(BranchLBRs_from)  # 获取 from 地址的第一个大于该地址的前一个函数信息
         to_func = da_getBinaryFunctionContainingAddress(BranchLBRs_to)  # 获取 to 地址的第一个大于该地址的前一个函数信息
-        print "找到的函数信息: from: " from_func " , to_func: " to_func >> "perf_temp_branch.log"
 
         # 初始化 方便后面处理
         src_func_id = 0
@@ -767,7 +765,7 @@ END {
         # dst_func_offset_hex = sprintf("%X", dst_func_offset)
 
         # 构建 Branch_data 字符串
-        Branch_data = sprintf("%d  %s  %X  %d  %s  %X", src_func_id, src_func_name, src_func_offset, dst_func_id, dst_func_name, dst_func_offset)
+        Branch_data = sprintf("%d %s %X %d %s %X", src_func_id, src_func_name, src_func_offset, dst_func_id, dst_func_name, dst_func_offset)
         
         if (!(Branch_data in Branch)) {
             # 如果当前的 branch 分支信息不在关联数组中，创建该信息
@@ -786,8 +784,12 @@ END {
     # 遍历整个 Branch 数组，输出最后的信息
     for (current_branch in Branch) {
         split(Branch[current_branch], current_branchs, " ")
-        print current_branch " " current_branchs[1] " " current_branchs[2] >> "perf_temp_final.log"
+        print current_branch " " current_branchs[1] " " current_branchs[2] > "perf.fdata"
     }
+    print "branch分支事件解析完成"
 
 }
 ' "$perf_branch_path"
+
+# 执行完成后，删除所有的临时文件
+rm -rf perf_*
